@@ -2,6 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 import models, schemas
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy.orm import Session
+from database import get_db
+import models, schemas
+import shutil
+import os
+import uuid
 
 router = APIRouter()
 
@@ -89,3 +96,37 @@ def verify_satellite(listing_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(listing)
     return listing
+
+# Upload field photo
+@router.post("/upload-photo")
+async def upload_photo(file: UploadFile = File(...)):
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/png", "image/jpg", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail="Only JPG, PNG and WEBP images are allowed"
+        )
+
+    # Validate file size (max 5MB)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="Image size must be less than 5MB"
+        )
+
+    # Generate unique filename
+    ext = file.filename.split(".")[-1]
+    filename = f"{uuid.uuid4()}.{ext}"
+    filepath = f"static/uploads/{filename}"
+
+    # Save file
+    with open(filepath, "wb") as f:
+        f.write(contents)
+
+    # Return accessible URL
+    return {
+        "photo_url": f"http://localhost:8000/static/uploads/{filename}",
+        "filename": filename
+    }

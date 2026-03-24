@@ -2,11 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
-import { createListing, getPriceSuggestion, getFarmer } from '../api/api';
+import { createListing, getPriceSuggestion, getFarmer, uploadPhoto } from '../api/api';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
-// Fix leaflet marker icon issue in React
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
     iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -21,7 +20,6 @@ const cropTypes = [
 
 const seasons = ['kharif', 'rabi'];
 
-// Map click handler component
 const MapClickHandler = ({ onLocationSelect }) => {
     useMapEvents({
         click(e) {
@@ -41,20 +39,22 @@ const CreateListing = () => {
         crop_type: '',
         quantity: 5,
         season: 'kharif',
-        photo_url: ''
     });
-    const [location, setLocation] = useState({ lat: 19.7515, lng: 75.7139 }); // Maharashtra center
+    const [location, setLocation] = useState({ lat: 19.7515, lng: 75.7139 });
     const [pinDropped, setPinDropped] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [step, setStep] = useState(1);
+    const [imageFile, setImageFile] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [imageError, setImageError] = useState('');
 
     useEffect(() => {
         const fetchFarmer = async () => {
             try {
                 const res = await getFarmer(farmerId);
                 setFarmer(res.data);
-                // Pre-select crop type from farmer profile
                 setForm(f => ({ ...f, crop_type: res.data.crop_type }));
             } catch (err) {
                 console.error(err);
@@ -73,9 +73,22 @@ const CreateListing = () => {
         setPinDropped(true);
     };
 
+    const handleImageChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+            setImageError('Image must be less than 5MB');
+            return;
+        }
+        setImageFile(file);
+        setImageError('');
+        const reader = new FileReader();
+        reader.onload = (ev) => setImagePreview(ev.target.result);
+        reader.readAsDataURL(file);
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
-
         if (!pinDropped) {
             setError('Please drop a pin on your field location on the map');
             return;
@@ -84,11 +97,20 @@ const CreateListing = () => {
             setError('Please select a crop type');
             return;
         }
-
         setLoading(true);
         setError('');
+
         try {
-            // Get AI price first
+            // Upload image first if provided
+            let photoUrl = null;
+            if (imageFile) {
+                setUploadingImage(true);
+                const uploadRes = await uploadPhoto(imageFile);
+                photoUrl = uploadRes.data.photo_url;
+                setUploadingImage(false);
+            }
+
+            // Get AI price
             const priceRes = await getPriceSuggestion({
                 crop_type: form.crop_type.toLowerCase(),
                 quantity: parseFloat(form.quantity),
@@ -98,20 +120,19 @@ const CreateListing = () => {
 
             const priceData = priceRes.data;
 
-            // Validate price data before using
             if (!priceData.price_min || !priceData.price_max) {
                 setError('Could not get AI price. Please try again.');
                 return;
             }
 
-            // Create listing with AI price
+            // Create listing
             const listingRes = await createListing({
                 farmer_id: parseInt(farmerId),
                 crop_type: form.crop_type,
                 quantity: parseFloat(form.quantity),
                 lat: location.lat,
                 lng: location.lng,
-                photo_url: form.photo_url || null,
+                photo_url: photoUrl,
                 ai_price_min: priceData.price_min,
                 ai_price_max: priceData.price_max,
             });
@@ -126,14 +147,16 @@ const CreateListing = () => {
             });
 
         } catch (err) {
+            setUploadingImage(false);
             console.error('Full error:', err.response?.data);
             setError(
                 typeof err.response?.data?.detail === 'string'
                     ? err.response.data.detail
                     : 'Failed to create listing. Please try again.'
             );
+        } finally {
+            setLoading(false);
         }
-        
     };
 
     return (
@@ -152,7 +175,7 @@ const CreateListing = () => {
                         {t('farmer.create_listing')}
                     </h1>
                     <p className="text-gray-500 text-sm mt-1">
-                        Fill in the details — our AI will suggest the best price instantly
+                        Fill in the details - our AI will suggest the best price instantly
                     </p>
                 </div>
 
@@ -180,10 +203,9 @@ const CreateListing = () => {
                     {step === 1 && (
                         <div className="card space-y-4">
                             <h2 className="font-semibold text-gray-700 text-lg border-b pb-2">
-                                Step 1 — Crop Details
+                                Step 1 - Crop Details
                             </h2>
 
-                            {/* Crop Type */}
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1">
                                     {t('listing.crop_type')} *
@@ -202,7 +224,6 @@ const CreateListing = () => {
                                 </select>
                             </div>
 
-                            {/* Quantity */}
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1">
                                     {t('listing.quantity')} *
@@ -224,7 +245,6 @@ const CreateListing = () => {
                                 </div>
                             </div>
 
-                            {/* Season */}
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1">
                                     Season *
@@ -252,7 +272,7 @@ const CreateListing = () => {
                                 disabled={!form.crop_type}
                                 className="btn-primary w-full text-center"
                             >
-                                Next — Set Location
+                                Next - Set Location
                             </button>
                         </div>
                     )}
@@ -268,7 +288,6 @@ const CreateListing = () => {
                                 {t('listing.pin_instruction')}
                             </div>
 
-                            {/* Map */}
                             <div className="rounded-xl overflow-hidden border border-gray-200" style={{ height: '320px' }}>
                                 <MapContainer
                                     center={[location.lat, location.lng]}
@@ -286,7 +305,6 @@ const CreateListing = () => {
                                 </MapContainer>
                             </div>
 
-                            {/* Location Status */}
                             {pinDropped ? (
                                 <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">
                                     Pin dropped at: {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
@@ -325,20 +343,59 @@ const CreateListing = () => {
                             </h2>
 
                             <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">
                                     {t('listing.photo')} (Optional)
                                 </label>
+
+                                <div
+                                    className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${imagePreview
+                                            ? 'border-primary-400 bg-primary-50'
+                                            : 'border-gray-300 hover:border-primary-400 hover:bg-primary-50'
+                                        }`}
+                                    onClick={() => document.getElementById('photo-upload').click()}
+                                >
+                                    {imagePreview ? (
+                                        <div>
+                                            <img
+                                                src={imagePreview}
+                                                alt="Field preview"
+                                                className="w-full h-48 object-cover rounded-lg mb-2"
+                                            />
+                                            <p className="text-xs text-primary-600 font-semibold">
+                                                Click to change image
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                </svg>
+                                            </div>
+                                            <p className="text-sm font-semibold text-gray-600 mb-1">
+                                                Click to upload field photo
+                                            </p>
+                                            <p className="text-xs text-gray-400">
+                                                JPG, PNG or WEBP · Max 5MB
+                                            </p>
+                                            <p className="text-xs text-primary-600 font-semibold mt-2">
+                                                Listings with photos get 3x more buyer interest
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <input
-                                    type="url"
-                                    name="photo_url"
-                                    value={form.photo_url}
-                                    onChange={handleChange}
-                                    placeholder="Paste image URL or leave blank"
-                                    className="input-field"
+                                    id="photo-upload"
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={handleImageChange}
                                 />
-                                <p className="text-xs text-gray-400 mt-1">
-                                    Paste a URL to your field photo. Listings with photos get 3x more buyer interest.
-                                </p>
+
+                                {imageError && (
+                                    <p className="text-red-500 text-xs mt-1">{imageError}</p>
+                                )}
                             </div>
 
                             {/* Summary */}
@@ -358,11 +415,15 @@ const CreateListing = () => {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Location</span>
-                                    <span className="font-semibold">{location.lat.toFixed(3)}, {location.lng.toFixed(3)}</span>
+                                    <span className="font-semibold">
+                                        {location.lat.toFixed(3)}, {location.lng.toFixed(3)}
+                                    </span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-gray-500">State</span>
-                                    <span className="font-semibold">{farmer?.state}</span>
+                                    <span className="text-gray-500">Photo</span>
+                                    <span className={`font-semibold ${imageFile ? 'text-green-600' : 'text-gray-400'}`}>
+                                        {imageFile ? 'Ready to upload' : 'Not added'}
+                                    </span>
                                 </div>
                             </div>
 
@@ -382,10 +443,14 @@ const CreateListing = () => {
                                 </button>
                                 <button
                                     type="submit"
-                                    disabled={loading}
+                                    disabled={loading || uploadingImage}
                                     className="btn-primary flex-1 text-center"
                                 >
-                                    {loading ? 'Getting AI Price...' : 'Submit & Get AI Price'}
+                                    {uploadingImage
+                                        ? 'Uploading image...'
+                                        : loading
+                                            ? 'Getting AI Price...'
+                                            : 'Submit & Get AI Price'}
                                 </button>
                             </div>
                         </div>

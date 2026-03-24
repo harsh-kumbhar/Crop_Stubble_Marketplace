@@ -58,4 +58,13 @@ export const verifySatellite = (id) =>
 export const getPriceSuggestion = (data) =>
     api.post('/ai/price', data);
 
+// Upload photo
+export const uploadPhoto = (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return axios.post(`${BASE_URL}/listings/upload-photo`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    });
+};
+
 export default api;

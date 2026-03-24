@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 from database import engine, Base
 from routes import farmer, buyer, listings, ai_price
 
@@ -11,6 +13,8 @@ app = FastAPI(
     description="From Field to Factory — Pune Agri Hackathon 2026",
     version="1.0.0"
 )
+os.makedirs("static/uploads", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Allow React frontend to talk to this backend
 app.add_middleware(
